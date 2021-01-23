@@ -238,6 +238,17 @@ where
                         position += 1;
                         term.flush()?;
                     }
+                    Key::Home if position > 0 => {
+                        term.move_cursor_left(position)?;
+                        position -= position;
+                        term.flush()?;
+                    }
+                    Key::End if position < chars.len() + 1 => {
+                        let move_right = chars.len() - position;
+                        term.move_cursor_right(move_right)?;
+                        position += move_right;
+                        term.flush()?;
+                    }
                     Key::Enter => break,
                     Key::Unknown => {
                         return Err(io::Error::new(
