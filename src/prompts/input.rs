@@ -183,9 +183,9 @@ where
     pub fn interact_text_on(&mut self, term: &Term) -> io::Result<T> {
         let mut render = TermThemeRenderer::new(term, self.theme);
 
-        if self.editor.load_history("history.txt").is_err() {
-            println!("No previous history.");
-        }
+        // if self.editor.load_history("history.txt").is_err() {
+        //     println!("No previous history.");
+        // }
 
         loop {
             let mut buf = String::new();
@@ -227,7 +227,7 @@ where
                                     continue;
                                 }
                             }
-                            self.editor.save_history("history.txt").unwrap();
+                            // self.editor.save_history("history.txt").unwrap();
 
                             render.input_prompt_selection(&self.prompt, &input)?;
                             term.flush()?;
