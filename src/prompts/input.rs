@@ -1,6 +1,6 @@
 use std::{
     fmt::{Debug, Display},
-    io, iter,
+    io,
     str::FromStr,
 };
 
@@ -9,7 +9,10 @@ use crate::{
     validate::Validator,
 };
 
-use console::{Key, Term};
+use console::{Term};
+
+use rustyline::error::ReadlineError;
+use rustyline::Editor;
 
 /// Renders an input prompt.
 ///
@@ -45,6 +48,7 @@ pub struct Input<'a, T> {
     theme: &'a dyn Theme,
     permit_empty: bool,
     validator: Option<Box<dyn FnMut(&T) -> Option<String> + 'a>>,
+    editor: Editor<()>,
 }
 
 impl<'a, T> Default for Input<'a, T>
@@ -69,7 +73,10 @@ where
 
     /// Creates an input prompt with a specific theme.
     pub fn with_theme(theme: &'a dyn Theme) -> Input<'a, T> {
+        // `()` can be used when no completer is required
+        let rl = Editor::<()>::new();
         Input {
+            editor: rl,
             prompt: "".into(),
             default: None,
             show_default: true,
@@ -176,118 +183,73 @@ where
     pub fn interact_text_on(&mut self, term: &Term) -> io::Result<T> {
         let mut render = TermThemeRenderer::new(term, self.theme);
 
+        if self.editor.load_history("history.txt").is_err() {
+            println!("No previous history.");
+        }
+
         loop {
-            let default_string = self.default.as_ref().map(|x| x.to_string());
+            let mut buf = String::new();
+            let default = match &self.default {
+                Some(dft) => dft.to_string(),
+                None => "".to_string(),
+            };
+            let _ = self.theme.format_input_prompt(&mut buf, self.prompt.as_str(), Some(default.as_str()));
+            let default_string = self.default.as_ref().map(|x| x.to_string()).unwrap_or("".to_string());
+            let readline =  self.editor.readline_with_initial(buf.as_str(),
+                                                              (default_string.as_str(),
+                                                               self.initial_text.as_ref().unwrap_or(&"".to_string()).as_str()));
+            match readline {
+                Ok(input) => {
 
-            render.input_prompt(
-                &self.prompt,
-                if self.show_default {
-                    default_string.as_deref()
-                } else {
-                    None
-                },
-            )?;
-            term.flush()?;
+                    render.add_line();
+                    term.clear_line()?;
+                    render.clear()?;
 
-            // Read input by keystroke so that we can suppress ascii control characters
-            if !term.features().is_attended() {
-                return Ok("".to_owned().parse::<T>().unwrap());
-            }
+                    // println!("Line: {}", input);
+                    if input.is_empty() {
+                        if let Some(ref default) = self.default {
 
-            let mut chars: Vec<char> = Vec::new();
-            let mut position = 0;
-
-            if let Some(initial) = self.initial_text.as_ref() {
-                term.write_str(initial)?;
-                chars = initial.chars().collect();
-                position = chars.len();
-            }
-
-            loop {
-                match term.read_key()? {
-                    Key::Backspace if position > 0 => {
-                        position -= 1;
-                        chars.remove(position);
-                        term.clear_chars(1)?;
-
-                        let tail: String = chars[position..].iter().collect();
-
-                        if !tail.is_empty() {
-                            term.write_str(&tail)?;
-                            term.move_cursor_left(tail.len())?;
-                        }
-
-                        term.flush()?;
-                    }
-                    Key::Char(chr) if !chr.is_ascii_control() => {
-                        chars.insert(position, chr);
-                        position += 1;
-                        let tail: String =
-                            iter::once(&chr).chain(chars[position..].iter()).collect();
-                        term.write_str(&tail)?;
-                        term.move_cursor_left(tail.len() - 1)?;
-                        term.flush()?;
-                    }
-                    Key::ArrowLeft if position > 0 => {
-                        term.move_cursor_left(1)?;
-                        position -= 1;
-                        term.flush()?;
-                    }
-                    Key::ArrowRight if position < chars.len() => {
-                        term.move_cursor_right(1)?;
-                        position += 1;
-                        term.flush()?;
-                    }
-                    Key::Home if position > 0 => {
-                        term.move_cursor_left(position)?;
-                        position -= position;
-                        term.flush()?;
-                    }
-                    Key::End if position < chars.len() + 1 => {
-                        let move_right = chars.len() - position;
-                        term.move_cursor_right(move_right)?;
-                        position += move_right;
-                        term.flush()?;
-                    }
-                    Key::Enter => break,
-                    Key::Unknown => {
-                        return Err(io::Error::new(
-                            io::ErrorKind::NotConnected,
-                            "Not a terminal",
-                        ))
-                    }
-                    _ => (),
-                }
-            }
-            let input = chars.iter().collect::<String>();
-
-            term.clear_line()?;
-            render.clear()?;
-
-            if chars.is_empty() {
-                if let Some(ref default) = self.default {
-                    render.input_prompt_selection(&self.prompt, &default.to_string())?;
-                    term.flush()?;
-                    return Ok(default.clone());
-                } else if !self.permit_empty {
-                    continue;
-                }
-            }
-
-            match input.parse::<T>() {
-                Ok(value) => {
-                    if let Some(ref mut validator) = self.validator {
-                        if let Some(err) = validator(&value) {
-                            render.error(&err)?;
+                            render.input_prompt_selection(&self.prompt, &default.to_string())?;
+                            term.flush()?;
+                            return Ok(default.clone());
+                        } else if !self.permit_empty {
                             continue;
                         }
                     }
 
-                    render.input_prompt_selection(&self.prompt, &input)?;
-                    term.flush()?;
+                    self.editor.add_history_entry(input.as_str());
 
-                    return Ok(value);
-                }
+                    match input.parse::<T>() {
+                        Ok(value) => {
+                            if let Some(ref mut validator) = self.validator {
+                                if let Some(err) = validator(&value) {
+                                    render.error(&err)?;
+                                    continue;
+                                }
+                            }
+                            self.editor.save_history("history.txt").unwrap();
+
+                            render.input_prompt_selection(&self.prompt, &input)?;
+                            term.flush()?;
+
+                            return Ok(value);
+                        }
+                        Err(err) => {
+                            render.error(&err.to_string())?;
+                            continue;
+                        }
+                    }
+
+                },
+                Err(ReadlineError::Interrupted) => {
+                    // println!("CTRL-C");
+                    std::process::exit(0);
+                    // return Ok("".parse::<T>().unwrap());
+                },
+                Err(ReadlineError::Eof) => {
+                    // println!("CTRL-D");
+                    return Ok("".parse::<T>().unwrap());
+                },
                 Err(err) => {
                     render.error(&err.to_string())?;
                     continue;
