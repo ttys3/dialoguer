@@ -17,6 +17,7 @@ readme = "README.md"
 
 [dependencies]
 console = "0.14.1"
+fuzzy-matcher = { version = "0.3.7", optional = true }
 lazy_static = "1.4.0"
 tempfile = "3.2.0"
 zeroize = "1.2.0"
@@ -26,6 +27,13 @@ rustyline = "8.0.0"
 # console = { path = "../../lib/console" }
 # console = { git = "https://github.com/ttys3/console.git", version = "0.15.0" }
 
+[features]
+fuzzy-select = ["fuzzy-matcher"]
+
 [[example]]
 name = "input"
 path = "examples/input.rs"
+
+[[example]]
+name = "fuzzyselect"
+path = "examples/fuzzyselect.rs"
