@@ -7,5 +7,4 @@ pub mod password;
 pub mod select;
 pub mod sort;
 
-#[cfg(feature = "fuzzy-select")]
 pub mod fuzzy_select;
